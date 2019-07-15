@@ -22,14 +22,25 @@ impl KDTree {
     unimplemented!()
   }
   pub fn add(&mut self, v: Point) {
+    assert_eq!(v.len(), self.dims);
     self.size += 1;
     match &mut self.root {
       None => { self.root.replace(KDNode::new(v, 0)); },
       Some(ref mut r) => r.add(v, self.dims),
     }
   }
-  pub fn nearest(&self, v: &Point) -> Option<Point> {
-    self.root.as_ref().map(|r| r.nearest(v).0.clone())
+  pub fn is_empty(&self) -> bool {
+    self.root.is_some()
+  }
+  pub fn remove(&mut self, p: &Point) -> bool {
+    self.root.as_ref().map_or(false, |r| r.remove(p))
+  }
+  pub fn contains(&self, v: &Point) -> bool {
+    assert_eq!(v.len(), self.dims);
+    self.root.as_ref().map_or(false, |r| r.contains(v))
+  }
+  pub fn nearest(&self, v: &Point) -> Option<&Point> {
+    self.root.as_ref().map(|r| r.nearest(v).0)
   }
   pub fn size(&self) -> usize { self.size }
 }
@@ -61,6 +72,40 @@ impl KDNode {
       Some(ref mut r) => r.add(v, dims),
     };
   }
+  fn contains(&self, v: &Point) -> bool {
+    if &self.item == v { return true };
+    let cmp = self.item[self.cmp_dim].partial_cmp(&v[self.cmp_dim]);
+    match cmp {
+      Some(Ordering::Greater) | None => &self.r,
+      Some(Ordering::Less) | Some(Ordering::Equal) => &self.l,
+    }.as_ref().map_or(false, |c| c.contains(v))
+
+  }
+  fn remove(&self, _v: &Point) -> bool {
+    unimplemented!();
+  }
+  fn find_min(&self, d: usize) -> &Point {
+    let l = self.l.as_ref().filter(|_| self.cmp_dim != d).map(|l| l.find_min(d));
+    let r = self.r.as_ref().map(|r| r.find_min(d));
+    match (r, l) {
+      (None, None) => &self.item,
+      (Some(v), None) | (None, Some(v)) => v,
+      (Some(r), Some(l)) => if r[d] < l[d] { r }
+        else if self.item[d] < l[d] { &self.item }
+        else { l },
+    }
+  }
+  fn find_max(&self, d: usize) -> &Point {
+    let r = self.r.as_ref().filter(|_| self.cmp_dim != d).map(|r| r.find_max(d));
+    let l = self.l.as_ref().map(|l| l.find_max(d));
+    match (r, l) {
+      (None, None) => &self.item,
+      (Some(v), None) | (None, Some(v)) => v,
+      (Some(r), Some(l)) => if r[d] > l[d] { r }
+        else if self.item[d] > l[d] { &self.item }
+        else { l },
+    }
+  }
   fn nearest(&self, v: &Point) -> (&Point, f32) {
     let self_dist = l2norm(&self.item, v);
     let (close, far) = match self.item[self.cmp_dim].partial_cmp(&v[self.cmp_dim]) {
@@ -71,7 +116,6 @@ impl KDNode {
       .map(|child| child.nearest(v))
       .filter(|&(_, dist)| dist < self_dist)
       .unwrap_or_else(|| (&self.item, self_dist));
-
     let must_check_other_side = (near_pt[self.cmp_dim] - v[self.cmp_dim]).abs() < near_dist;
     far.as_ref()
       .filter(|_| must_check_other_side)
@@ -92,10 +136,16 @@ mod kdtree_test {
     t.add(vec!(1.,1.5));
     t.add(vec!(1.,2.));
     assert_eq!(t.size(), 4);
-    println!("{:?}", t);
-    assert_eq!(t.nearest(&vec!(3.,2.)), Some(vec!(3., 2.)));
-    assert_eq!(t.nearest(&vec!(0.,0.)), Some(vec!(1.,1.5)));
+    assert_eq!(t.nearest(&vec!(3.,2.)), Some(&vec!(3., 2.)));
+    assert_eq!(t.nearest(&vec!(0.,0.)), Some(&vec!(1.,1.5)));
+    assert_eq!(t.root.as_ref().map(|r| r.find_min(0)[0]), Some(1.));
+    assert_eq!(t.root.as_ref().map(|r| r.find_max(0)[0]), Some(3.));
   }
-
-  // TODO more tests
+  #[test]
+  fn gen_test() {
+    let mut t = KDTree::new(2);
+    (-5..5).map(|i| i as f32).for_each(|v| t.add(vec!(v, v)));
+    assert_eq!(t.size(), 10);
+    assert_eq!(t.nearest(&vec!(0.,0.)), Some(&vec!(0.,0.)));
+  }
 }

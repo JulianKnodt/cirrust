@@ -1,6 +1,6 @@
 use crate::point::Point;
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub struct BoundingBox {
   dim: usize,
   ll: Point, rr: Point,
@@ -12,6 +12,13 @@ impl BoundingBox {
     assert!(ll.iter().enumerate().all(|(i,d)| d <= &rr[i]));
     let dim = ll.len();
     BoundingBox{dim, ll, rr}
+  }
+  pub fn just(p: &Point) -> Self {
+    BoundingBox{
+      dim: p.len(),
+      ll: p.clone(),
+      rr: p.clone(),
+    }
   }
   pub fn inf(dim: usize) -> Self {
     BoundingBox{
@@ -94,6 +101,20 @@ impl BoundingBox {
     assert_eq!(self.dim, p.len());
     (0..self.dim).any(|d| self.ll[d] == p[d] || self.rr[d] == p[d])
   }
+  pub fn split_on(&self, d: usize, v: f32) -> (Self, Self) {
+    assert!(d < self.dim);
+    let mut mid_ll = self.ll.clone();
+    mid_ll[d] = v;
+    let mut mid_rr = self.rr.clone();
+    mid_rr[d] = v;
+    (BoundingBox{
+      dim: self.dim,
+      ll: self.ll.clone(), rr: mid_rr,
+    }, BoundingBox{
+      dim: self.dim,
+      ll: mid_ll, rr: self.rr.clone(),
+    })
+  }
 }
 
 
@@ -117,6 +138,7 @@ mod bounding_box_test {
     assert_eq!(inf.intersection(&small_box()), small_box());
     assert_eq!(inf.union(&small_box()), inf);
   }
+  #[test]
   fn test_small() {
     let bb = small_box();
     (0..=5).for_each(|v| {
@@ -126,6 +148,8 @@ mod bounding_box_test {
       assert!(bb.contains(&vec!(v, -v)));
       assert!(bb.contains(&vec!(-v, -v)));
     });
-    assert!(!bb.contains(&vec!(5.,5.)));
+    assert!(!bb.strictly_contains(&vec!(5.,5.)));
+    assert!(bb.on_edge(&vec!(5.,5.)));
+    assert_eq!(bb.volume(), 100.);
   }
 }

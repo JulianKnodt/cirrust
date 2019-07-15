@@ -16,3 +16,16 @@ pub fn l1norm(a: &Vec<f32>, b: &Vec<f32>) -> f32 {
     .sum::<f32>()
 }
 
+// Takes the average of a list of points
+// there are other ways of computing this more efficiently
+pub fn median(of: Vec<Point>) -> Point {
+  assert!(!of.is_empty());
+  (0..of[0].len()).map(|d| {
+    let mut items : Vec<_> = of.iter()
+      .map(|p| p[d])
+      .filter(|v| v.is_finite())
+      .collect();
+    items.sort_unstable_by(|x,y| x.partial_cmp(y).unwrap());
+    items[of.len() / 2]
+  }).collect()
+}
