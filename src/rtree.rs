@@ -17,7 +17,7 @@ impl RTree {
       dims: dims,
       size: 0,
       max_rect_per_lvl: 9, // good constant?
-      max_entries_per_rect: 10, // arbitrary, should fix
+      max_entries_per_rect: 10000, // arbitrary, should fix
     }
   }
   pub fn add(&mut self, p: Point) {
@@ -43,27 +43,24 @@ impl RNode {
       RNode::Internal(bb, _) | RNode::Leaf(bb, _) => bb,
     }
   }
-  // propogates new nodes up the tree so they can be replaced if necessary
-  fn add(&mut self, p: Point, max_entries: usize, max_rects: usize) -> Option<Vec<RNode>> {
+  // returns true if is overflowing
+  fn add(&mut self, p: Point, max_entries: usize, max_rects: usize) -> bool {
     match self {
       RNode::Internal(ref mut bb, ref mut children) => {
-        if !bb.contains(&p) { assert!(bb.expand_to(&p)) };
-        let inserted = children.iter_mut()
+        if !bb.strictly_contains(&p) { assert!(bb.expand_to(&p)) };
+        let selected = children.iter_mut()
           .map(|c| (c.bb().dist(&p), c))
           .min_by(|(d, _), (o_d, _)| (d.partial_cmp(o_d).unwrap_or(Ordering::Greater)))
           .map(|(_, child)| child)
           .expect("There was an internal node with no children");
-        inserted.add(p, max_entries, max_rects);
-          // TODO handle here
+        if selected.add(p, max_entries, max_rects) {
           unimplemented!();
+        } else { false }
       },
       RNode::Leaf(ref mut bb, ref mut pts) => {
-        if !bb.contains(&p) { assert!(bb.expand_to(&p)) };
+        if !bb.strictly_contains(&p) { assert!(bb.expand_to(&p)) };
         pts.push(p);
-        if pts.len() >= max_entries {
-          unimplemented!()
-          // TODO find dimension with most variance
-        } else { None }
+        pts.len() >= max_entries
       },
     }
   }

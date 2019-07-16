@@ -1,6 +1,6 @@
-use crate::point::Point;
+use crate::point::{Point, OptionalPoint};
 
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Debug, Clone, Copy)]
 pub struct BoundingBox {
   dim: usize,
   ll: Point, rr: Point,
@@ -9,7 +9,7 @@ pub struct BoundingBox {
 impl BoundingBox {
   pub fn new(ll: Point, rr:Point) -> Self {
     assert_eq!(ll.len(), rr.len());
-    assert!(ll.iter().enumerate().all(|(i,d)| d <= &rr[i]));
+    assert!(ll.iter().enumerate().all(|(i,d)| d <= rr[i]));
     let dim = ll.len();
     BoundingBox{dim, ll, rr}
   }
@@ -23,8 +23,8 @@ impl BoundingBox {
   pub fn inf(dim: usize) -> Self {
     BoundingBox{
       dim: dim,
-      ll: vec![std::f32::NEG_INFINITY; dim],
-      rr: vec![std::f32::INFINITY; dim],
+      ll: Point::from_vec(vec![std::f32::NEG_INFINITY; dim]),
+      rr: Point::from_vec(vec![std::f32::INFINITY; dim]),
     }
   }
   pub fn strictly_contains(&self, p: &Point) -> bool {
@@ -83,15 +83,15 @@ impl BoundingBox {
   }
   pub fn quadrant(&self, corner: Vec<bool>) -> Self {
     assert_eq!(self.dim, corner.len());
-    let (ll, rr) = corner.iter()
+    let (ll, rr): (OptionalPoint, OptionalPoint) = corner.iter()
       .enumerate()
       .map(|(i,&c)| if c { self.rr[i] } else { self.ll[i] })
       .zip(self.center().iter())
-      .map(|(a, &b)| if a < b { (a, b) } else { (b, a) })
+      .map(|(a, b)| if a < b { (a, b) } else { (b, a) })
       .unzip();
     BoundingBox{
       dim: self.dim,
-      ll: ll, rr: rr,
+      ll: ll.unwrap(), rr: rr.unwrap(),
     }
   }
   pub fn surrounds(&self,  o: &Self) -> bool {
