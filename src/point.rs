@@ -1,8 +1,10 @@
 use std::{
-  iter::Iterator,
+  iter::{Iterator, Extend},
+  ops::{Index, IndexMut},
+  convert::{From},
 };
 
-// Temporary representation of 3d point
+// Temporary representation of 3d point, might do more dimenstions later, idk
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub struct Point(f32, f32, f32);
 
@@ -21,7 +23,7 @@ pub fn l1norm(a: &Point, b: &Point) -> f32 {
     .sum::<f32>()
 }
 
-impl std::ops::Index<usize> for Point {
+impl Index<usize> for Point {
   type Output = f32;
   fn index(&self, i: usize) -> &f32 {
     match i {
@@ -33,7 +35,7 @@ impl std::ops::Index<usize> for Point {
   }
 }
 
-impl std::ops::IndexMut<usize> for Point {
+impl IndexMut<usize> for Point {
   fn index_mut<'a>(&'a mut self, i: usize) -> &'a mut Self::Output {
     match i {
       0 => &mut self.0,
@@ -52,15 +54,9 @@ impl std::iter::FromIterator<f32> for Point {
 }
 
 impl Point {
-  pub fn from_vec(v: Vec<f32>) -> Self {
-    Point(
-      v.get(0).copied().unwrap_or(0.),
-      v.get(1).copied().unwrap_or(0.),
-      v.get(2).copied().unwrap_or(0.),
-    )
-  }
   pub fn len(&self) -> usize { 3 }
   pub fn iter(&self) -> Iter { Iter(0, &self) }
+  pub fn dist(&self, o: &Self) -> f32 { l2norm(self, o) }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -80,19 +76,50 @@ impl Iterator for Iter<'_> {
   }
 }
 
-#[derive(Default, Clone, Copy, Debug)]
-pub(crate) struct OptionalPoint(Option<f32>, Option<f32>, Option<f32>);
-impl OptionalPoint {
-  pub fn unwrap(&self) -> Point {
-    Point(self.0.unwrap(), self.1.unwrap(), self.2.unwrap())
+impl Extend<f32> for Point {
+  fn extend<I: IntoIterator<Item=f32>>(&mut self, iter: I) {
+    let mut i = iter.into_iter();
+    self.0 = i.next().unwrap();
+    self.1 = i.next().unwrap();
+    self.2 = i.next().unwrap();
   }
 }
 
-impl std::iter::Extend<f32> for OptionalPoint {
-  fn extend<I: IntoIterator<Item=f32>>(&mut self, iter: I) {
-    let mut i = iter.into_iter();
-    assert!(self.0.replace(i.next().unwrap()).is_none());
-    assert!(self.1.replace(i.next().unwrap()).is_none());
-    assert!(self.2.replace(i.next().unwrap()).is_none());
+impl From<&Vec<f32>> for Point {
+  fn from(v: &Vec<f32>) -> Self {
+    Point(
+      v.get(0).copied().unwrap_or(0.),
+      v.get(1).copied().unwrap_or(0.),
+      v.get(2).copied().unwrap_or(0.),
+    )
+  }
+}
+
+impl From<f32> for Point {
+  fn from(v: f32) -> Self { Point(v,v,v) }
+}
+
+impl From<(f32, f32, f32)> for Point {
+  fn from(v: (f32, f32,f32)) -> Self { Point(v.0, v.1, v.2) }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::Point;
+  #[test]
+  fn test_point() {
+    let p: Point = Default::default();
+    assert_eq!(p.0, p.1);
+    assert_eq!(p.0, p.2);
+    assert_eq!(p.0, 0.);
+    assert!(p.iter().all(|v| v == 0.));
+    assert_eq!(p.iter().count(), 3);
+  }
+
+  #[test]
+  fn test_dist() {
+    let origin: Point = Default::default();
+    let v = Point::from((3., 4., 0.));
+    assert_eq!(origin.dist(&v), 5.);
   }
 }
