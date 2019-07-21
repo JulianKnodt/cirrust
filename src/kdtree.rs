@@ -19,10 +19,6 @@ impl KDTree {
       size: 0,
     }
   }
-  pub fn from(_pts: Vec<Point>) -> Self {
-    // https://math.stackexchange.com/questions/1764878/how-to-efficiently-create-balanced-kd-trees-from-a-static-set-of-points
-    unimplemented!()
-  }
   pub fn add(&mut self, v: Point) {
     self.size += 1;
     match &mut self.root {
@@ -30,32 +26,23 @@ impl KDTree {
       Some(ref mut r) => r.add(v, self.dims),
     }
   }
-  pub fn is_empty(&self) -> bool {
-    self.root.is_some()
-  }
-  pub fn remove(&mut self, p: &Point) -> bool {
-    let remove_root = self.root.as_ref().map_or(false, |r| &r.item == p);
-    if remove_root {
-      let mut root = self.root.as_mut().unwrap();
-      let cmp_dim = root.cmp_dim;
-      let replacement = root.r.as_mut()
-        .map(|r| (r.find_min(cmp_dim).clone(), true))
-        .or_else(||
-          root.l.as_mut().map(|l| (l.find_max(cmp_dim).clone(), false))
-        );
-      match replacement {
-        None => assert!(self.root.take().is_some()),
-        Some((repl_point, go_r)) => {
-          root.item = repl_point;
-          assert!((if go_r { root.r.as_mut() } else { root.l.as_mut() })
-            .unwrap()
-            .remove(&repl_point));
-        },
-      };
-      return true;
+  // This RFC(https://github.com/rust-lang/rust/issues/55300) better be stabilized because it's
+  // super convenient
+  pub fn from(v: &mut [Point]) -> Self {
+    let d = 0;
+    let med = (v.len()-1)/2;
+    let partitions = v.partition_at_index_by(med, |a, b| match a[d].partial_cmp(&b[d]) {
+      Some(Ordering::Greater) => Ordering::Greater,
+      _ => Ordering::Less,
+    });
+    let dims = partitions.1.len();
+    KDTree{
+      dims: dims,
+      root: Some(KDNode::from(partitions, d)),
+      size: v.len(),
     }
-    self.root.as_mut().map_or(false, |r| r.remove(p))
   }
+  pub fn is_empty(&self) -> bool { self.root.is_some() }
   pub fn contains(&self, v: &Point) -> bool {
     assert_eq!(v.len(), self.dims);
     self.root.as_ref().map_or(false, |r| r.contains(v))
@@ -70,15 +57,22 @@ impl KDTree {
     self.root.as_ref().map(|r| r.find_min(d))
   }
   pub fn size(&self) -> usize { self.size }
+  pub fn depth(&self) -> usize { self.root.as_ref().map_or(0, |r| r.depth()) }
+  #[cfg(test)]
+  fn is_valid(&self) -> bool {
+    assert!(self.root.as_ref().map_or(true, |r| r.is_valid()));
+    assert_eq!(self.size, self.root.as_ref().map_or(0, |r| r.count()));
+    true
+  }
 }
 
 #[derive(Debug)]
-struct KDNode {
+pub struct KDNode {
   item: Point,
   cmp_dim: usize,
-  // l is lesser
+  // l is lesser and equal
   l: Option<Box<KDNode>>,
-  // right is greater
+  // right is greater and equal
   r: Option<Box<KDNode>>,
 }
 
@@ -89,41 +83,58 @@ impl KDNode {
       l: None, r: None,
     }
   }
+  fn from(partition: (&mut [Point], &mut Point, &mut [Point]), cmp_dim: usize) -> Self {
+    let (below, median, above) = partition;
+    let r = if below.is_empty() { None } else {
+      let med = (below.len()-1)/2;
+      let d = (cmp_dim + 1) % median.len();
+      let partition = below.partition_at_index_by(med, |a, b| a[d].partial_cmp(&b[d]).unwrap());
+      Some(Box::new(KDNode::from(partition, d)))
+    };
+    let l = if above.is_empty() { None } else {
+      let med = (above.len()-1)/2;
+      let d = (cmp_dim + 1) % median.len();
+      let partition = above.partition_at_index_by(med, |a, b| a[d].partial_cmp(&b[d]).unwrap());
+      Some(Box::new(KDNode::from(partition, d)))
+    };
+    KDNode{
+      item: median.clone(),
+      cmp_dim: cmp_dim,
+      l: l, r: r,
+    }
+  }
   fn add(&mut self, v: Point, dims: usize) {
-    let cmp = self.item[self.cmp_dim].partial_cmp(&v[self.cmp_dim]);
-    let item = match cmp {
-      Some(Ordering::Greater) | None => &mut self.r,
-      Some(Ordering::Less) | Some(Ordering::Equal) => &mut self.l,
+    let item = match self.item[self.cmp_dim].partial_cmp(&v[self.cmp_dim]) {
+      Some(Ordering::Greater) => &mut self.r,
+      Some(Ordering::Less) => &mut self.l,
+      // randomly select here as it is more resilient if both sides can contain equal values
+      _ => unimplemented!(),
     };
     let next_dim = (self.cmp_dim + 1) % dims;
     match item {
-      None => { item.replace(Box::new(KDNode::new(v, next_dim))); },
+      None => assert!(item.replace(Box::new(KDNode::new(v, next_dim))).is_none()),
       Some(ref mut r) => r.add(v, dims),
     };
   }
   fn is_leaf(&self) -> bool { self.l.is_none() && self.r.is_none() }
   fn contains(&self, v: &Point) -> bool {
     if &self.item == v { return true };
-    let cmp = self.item[self.cmp_dim].partial_cmp(&v[self.cmp_dim]);
-    match cmp {
-      Some(Ordering::Greater) | None => &self.r,
-      Some(Ordering::Less) | Some(Ordering::Equal) => &self.l,
-    }.as_ref().map_or(false, |c| c.contains(v))
-  }
-  fn remove(&mut self, v: &Point) -> bool {
-    let cmp = self.item[self.cmp_dim].partial_cmp(&v[self.cmp_dim]);
-    let _next = match cmp {
-      Some(Ordering::Greater) | None => &mut self.r,
-      Some(Ordering::Less) | Some(Ordering::Equal) => &mut self.l,
-    };
-    unimplemented!()
+    match &self.item[self.cmp_dim].partial_cmp(&v[self.cmp_dim]) {
+      Some(Ordering::Greater) => &self.r,
+      Some(Ordering::Less) => &self.r,
+      // otherwise we check both
+      _ => return self.r.as_ref().map_or(false, |r| r.contains(v)) ||
+        self.l.as_ref().map_or(false, |l| l.contains(v)),
+    }.as_ref()
+    .map_or(false, |c| c.contains(v))
   }
   fn find_min(&self, d: usize) -> &Point {
     let l = self.l.as_ref().filter(|_| self.cmp_dim != d).map(|l| l.find_min(d));
     let r = self.r.as_ref().map(|r| r.find_min(d));
     match (r, l) {
       (None, None) => &self.item,
-      (Some(v), None) | (None, Some(v)) => v,
+      (Some(v), None) | (None, Some(v)) => if self.item[d] < v[d] { &self.item }
+        else { v },
       (Some(r), Some(l)) => if r[d] < l[d] { r }
         else if self.item[d] < l[d] { &self.item }
         else { l },
@@ -134,7 +145,8 @@ impl KDNode {
     let l = self.l.as_ref().map(|l| l.find_max(d));
     match (r, l) {
       (None, None) => &self.item,
-      (Some(v), None) | (None, Some(v)) => v,
+      (Some(v), None) | (None, Some(v)) => if self.item[d] > v[d] { &self.item }
+        else { v },
       (Some(r), Some(l)) => if r[d] > l[d] { r }
         else if self.item[d] > l[d] { &self.item }
         else { l },
@@ -143,8 +155,8 @@ impl KDNode {
   fn nearest(&self, v: &Point) -> (&Point, f32) {
     let self_dist = self.item.dist(v);
     let (close, far) = match self.item[self.cmp_dim].partial_cmp(&v[self.cmp_dim]) {
-      Some(Ordering::Greater) | None => (&self.r, &self.l),
-      Some(Ordering::Less) | Some(Ordering::Equal) => (&self.l, &self.r),
+      Some(Ordering::Greater) => (&self.r, &self.l),
+      Some(Ordering::Less) | _ => (&self.l, &self.r),
     };
     let (near_pt, near_dist) = close.as_ref()
       .map(|child| child.nearest(v))
@@ -157,12 +169,43 @@ impl KDNode {
       .filter(|&(_, dist)| dist < near_dist)
       .unwrap_or((near_pt, near_dist))
   }
+
+  pub fn children(&self) -> std::iter::Chain<
+      std::option::Iter<Box<KDNode>>,
+      std::option::Iter<Box<KDNode>>
+    > {
+    self.l.iter().chain(self.r.iter())
+  }
+
+  #[cfg(test)]
+  fn is_valid(&self) -> bool {
+    self.r.as_ref()
+      .map(|r| assert!(self.is_r(&r.item), "\n{:?} =bad r> {:?} on {}",
+        self.item, r.item, self.cmp_dim));
+    self.l.as_ref()
+      .map(|l| assert!(!self.is_r(&l.item), "\n{:?} =bad l> {:?}", self.item, l.item));
+    self.r.as_ref().map(|r| assert!(r.is_valid()));
+    self.l.as_ref().map(|l| assert!(l.is_valid()));
+    true
+  }
+
+  #[cfg(test)]
+  fn count(&self) -> usize {
+    1 + self.r.as_ref().map_or(0, |r| r.count()) + self.l.as_ref().map_or(0, |l| l.count())
+  }
+
+  pub fn depth(&self) -> usize {
+    1 + self.r.as_ref()
+      .map_or(0, |r| r.depth())
+      .max(self.l.as_ref().map_or(0, |l| l.depth()))
+  }
 }
 
 #[cfg(test)]
 mod kdtree_test {
   use crate::kdtree::KDTree;
   use crate::point::Point;
+  use crate::test_util::BadRand;
   fn naive_nearest<'a>(v: &'a Vec<Point>, o: &Point) -> &'a Point {
     assert!(!v.is_empty());
     v.iter()
@@ -178,26 +221,6 @@ mod kdtree_test {
     assert!(!v.is_empty());
     v.iter().min_by(|a, b| a[d].partial_cmp(&b[d]).unwrap()).unwrap()
   }
-  // Just a bad implementation of random for testing
-  // Didn't want to bring in the crate just for that
-  struct BadRand(i64);
-  const M: i64 = 1i64 << 31;
-  const A: i64 = 1103515245;
-  const C: i64 = 12345;
-  impl BadRand {
-    pub fn new() -> Self {
-      use std::time::{SystemTime};
-      let t = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap()
-        .subsec_nanos();
-      BadRand(t as i64)
-    }
-    pub fn v(&mut self, m: i64) -> i64 {
-      self.0 = (self.0 * A + C) % M;
-      return self.0 % m;
-    }
-  }
   #[test]
   fn all_test() {
     let mut t = KDTree::new(2);
@@ -206,6 +229,7 @@ mod kdtree_test {
       .collect();
     items.iter().for_each(|p| t.add(p.clone()));
     assert_eq!(t.size(), 4);
+    assert!(t.is_valid());
     assert_eq!(t.nearest(&Point::from(&vec!(3.,2.))), Some(&Point::from(&vec!(3., 2.))));
     assert_eq!(t.nearest(&Point::from(&vec!(0.,0.))), Some(&Point::from(&vec!(1.,1.5))));
     assert_eq!(t.root.as_ref().map(|r| r.find_min(0)[0]), Some(1.));
@@ -217,19 +241,25 @@ mod kdtree_test {
         let p = Point::from((x as f32, y as f32, 0.));
         assert_eq!(Some(naive_nearest(&items, &p)), t.nearest(&p));
       }));
+    assert!(t.is_valid());
+    assert_eq!(t.size, 4);
   }
   #[test]
   fn gen_test() {
     let mut t = KDTree::new(3);
     let mut r = BadRand::new();
     let cap = 20;
-    let points : Vec<_> = (0..256)
-      .map(|_| Point::from((r.v(cap) as f32, r.v(cap) as f32, r.v(cap) as f32)))
+    let num_points = 256;
+    let mut points : Vec<_> = (0..num_points)
+      .map(|_| Point::from((r.i64(cap) as f32, r.i64(cap) as f32, r.i64(cap) as f32)))
       .collect();
     points.iter().for_each(|p| t.add(p.clone()));
+    assert!(t.is_valid());
+    assert_eq!(num_points, t.root.as_ref().unwrap().count());
+    assert_eq!(num_points, t.size);
     assert!(points.iter().all(|p| t.contains(p)));
     (0..256).for_each(|_| {
-      let p = Point::from((r.v(cap) as f32, r.v(cap) as f32, r.v(cap) as f32));
+      let p = Point::from((r.i64(cap) as f32, r.i64(cap) as f32, r.i64(cap) as f32));
       let d1 = naive_nearest(&points, &p).dist(&p);
       let d2 = t.nearest(&p).unwrap().dist(&p);
       assert_eq!(d1, d2);
@@ -238,5 +268,9 @@ mod kdtree_test {
       assert_eq!(naive_min(&points, d)[d], t.find_min(d).unwrap()[d]);
       assert_eq!(naive_max(&points, d)[d], t.find_max(d).unwrap()[d]);
     });
+    assert!(t.is_valid());
+    let from = KDTree::from(points.as_mut_slice());
+    assert!(t.depth() >= from.depth());
+    assert!(from.is_valid());
   }
 }
