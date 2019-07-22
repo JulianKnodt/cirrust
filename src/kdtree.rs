@@ -7,15 +7,13 @@ use crate::point::{Point};
 #[derive(Debug)]
 pub struct KDTree {
   root: Option<KDNode>,
-  dims: usize,
   size: usize,
 }
 
 impl KDTree {
-  pub fn new(dims: usize) -> Self {
+  pub fn new() -> Self {
     KDTree{
       root: None,
-      dims: dims,
       size: 0,
     }
   }
@@ -23,28 +21,44 @@ impl KDTree {
     self.size += 1;
     match &mut self.root {
       None => { self.root.replace(KDNode::new(v, 0)); },
-      Some(ref mut r) => r.add(v, self.dims),
+      Some(ref mut r) => r.add(v),
     }
   }
   // This RFC(https://github.com/rust-lang/rust/issues/55300) better be stabilized because it's
   // super convenient
   pub fn from(v: &mut [Point]) -> Self {
-    let d = 0;
+    if v.len() == 0 { return KDTree::new(); }
+    let d = crate::point::variances(v)
+      .iter().enumerate().min_by(|(_,a),(_,b)| a.partial_cmp(&b).unwrap()).unwrap().0;
     let med = (v.len()-1)/2;
     let partitions = v.partition_at_index_by(med, |a, b| match a[d].partial_cmp(&b[d]) {
       Some(Ordering::Greater) => Ordering::Greater,
       _ => Ordering::Less,
     });
-    let dims = partitions.1.len();
     KDTree{
-      dims: dims,
       root: Some(KDNode::from(partitions, d)),
       size: v.len(),
     }
   }
-  pub fn is_empty(&self) -> bool { self.root.is_some() }
+	pub fn remove(&mut self, p: &Point) -> bool {
+    let did_remove = if self.root.as_ref().map_or(false, |r| &r.item == p) {
+      let mut root = self.root.as_mut().unwrap();
+      let cmp_dim = root.cmp_dim;
+      () == if let Some(r) = root.r.as_mut() {
+        let r_max = r.find_max(cmp_dim).clone();
+        assert!(root.remove(&r_max));
+        root.item = r_max;
+      } else if let Some(l) = root.l.as_mut() {
+        let l_min = l.find_min(cmp_dim).clone();
+        assert!(root.remove(&l_min));
+        root.item = l_min;
+      } else { assert!(self.root.take().unwrap().is_leaf()) }
+    } else { self.root.as_mut().map_or(false, |r| r.remove(p)) };
+    self.size -= usize::from(did_remove);
+    did_remove
+  }
+  pub fn is_empty(&self) -> bool { self.root.is_none() }
   pub fn contains(&self, v: &Point) -> bool {
-    assert_eq!(v.len(), self.dims);
     self.root.as_ref().map_or(false, |r| r.contains(v))
   }
   pub fn nearest(&self, v: &Point) -> Option<&Point> {
@@ -87,13 +101,15 @@ impl KDNode {
     let (below, median, above) = partition;
     let r = if below.is_empty() { None } else {
       let med = (below.len()-1)/2;
-      let d = (cmp_dim + 1) % median.len();
+      let d = crate::point::variances(below)
+        .iter().enumerate().min_by(|(_,a),(_,b)| a.partial_cmp(&b).unwrap()).unwrap().0;
       let partition = below.partition_at_index_by(med, |a, b| a[d].partial_cmp(&b[d]).unwrap());
       Some(Box::new(KDNode::from(partition, d)))
     };
     let l = if above.is_empty() { None } else {
       let med = (above.len()-1)/2;
-      let d = (cmp_dim + 1) % median.len();
+      let d = crate::point::variances(above)
+        .iter().enumerate().min_by(|(_,a),(_,b)| a.partial_cmp(&b).unwrap()).unwrap().0;
       let partition = above.partition_at_index_by(med, |a, b| a[d].partial_cmp(&b[d]).unwrap());
       Some(Box::new(KDNode::from(partition, d)))
     };
@@ -103,17 +119,18 @@ impl KDNode {
       l: l, r: r,
     }
   }
-  fn add(&mut self, v: Point, dims: usize) {
+  fn add(&mut self, v: Point) {
     let item = match self.item[self.cmp_dim].partial_cmp(&v[self.cmp_dim]) {
       Some(Ordering::Greater) => &mut self.r,
       Some(Ordering::Less) => &mut self.l,
       // randomly select here as it is more resilient if both sides can contain equal values
-      _ => unimplemented!(),
+      // I realize this isn't really random but it can't be counted on
+      _ => if (self.cmp_dim % 2) == 0 { &mut self.l } else { &mut self.r },
     };
-    let next_dim = (self.cmp_dim + 1) % dims;
+    let next_dim = (self.cmp_dim + 1) % v.len();
     match item {
       None => assert!(item.replace(Box::new(KDNode::new(v, next_dim))).is_none()),
-      Some(ref mut r) => r.add(v, dims),
+      Some(ref mut r) => r.add(v),
     };
   }
   fn is_leaf(&self) -> bool { self.l.is_none() && self.r.is_none() }
@@ -121,12 +138,39 @@ impl KDNode {
     if &self.item == v { return true };
     match &self.item[self.cmp_dim].partial_cmp(&v[self.cmp_dim]) {
       Some(Ordering::Greater) => &self.r,
-      Some(Ordering::Less) => &self.r,
+      Some(Ordering::Less) => &self.l,
       // otherwise we check both
       _ => return self.r.as_ref().map_or(false, |r| r.contains(v)) ||
         self.l.as_ref().map_or(false, |l| l.contains(v)),
     }.as_ref()
     .map_or(false, |c| c.contains(v))
+  }
+  fn remove(&mut self, v: &Point) -> bool {
+    let (next, is_r) = match self.item[self.cmp_dim].partial_cmp(&v[self.cmp_dim]) {
+      Some(Ordering::Greater) => if self.r.is_none() { return false }
+        else { (self.r.as_mut(), true) },
+      Some(Ordering::Less) => if self.l.is_none() { return false }
+        else { (self.l.as_mut(), false) },
+      _ => if self.r.as_ref().map_or(false, |r| &r.item == v) { (self.r.as_mut(), true) }
+        else if self.l.as_ref().map_or(false, |l| &l.item == v) { (self.l.as_mut(), false) }
+        else if self.r.as_mut().map_or(false, |r| r.remove(v)) { return true }
+        else if self.l.as_mut().map_or(false, |l| l.remove(v)) { return true }
+        else { return false },
+    };
+    let next = next.unwrap();
+    if &next.item != v { return next.remove(v) };
+    // next.item == v
+    let cmp_dim = next.cmp_dim;
+    () == if let Some(r) = next.r.as_mut() {
+      let r_max = r.find_max(cmp_dim).clone();
+      assert!(next.remove(&r_max));
+      next.item = r_max;
+    } else if let Some(l) = next.l.as_mut() {
+      let l_min = l.find_min(cmp_dim).clone();
+      assert!(next.remove(&l_min));
+      next.item = l_min;
+    } else if is_r { assert!(self.r.take().unwrap().is_leaf()) }
+    else { assert!(self.l.take().unwrap().is_leaf()) }
   }
   fn find_min(&self, d: usize) -> &Point {
     let l = self.l.as_ref().filter(|_| self.cmp_dim != d).map(|l| l.find_min(d));
@@ -179,11 +223,14 @@ impl KDNode {
 
   #[cfg(test)]
   fn is_valid(&self) -> bool {
-    self.r.as_ref()
-      .map(|r| assert!(self.is_r(&r.item), "\n{:?} =bad r> {:?} on {}",
-        self.item, r.item, self.cmp_dim));
-    self.l.as_ref()
-      .map(|l| assert!(!self.is_r(&l.item), "\n{:?} =bad l> {:?}", self.item, l.item));
+    let right_ok = self.r.as_ref()
+      .map_or(true,
+        |r| self.item[self.cmp_dim].partial_cmp(&r.item[self.cmp_dim]) != Some(Ordering::Less));
+    assert!(right_ok, "Failed on right {:?} {:?}", self.item, self.r.as_ref().unwrap().item);
+    let left_ok = self.l.as_ref()
+      .map_or(true,
+        |l| self.item[self.cmp_dim].partial_cmp(&l.item[self.cmp_dim]) != Some(Ordering::Greater));
+    assert!(left_ok, "Failed on left {:?} {:?}", self.item, self.l.as_ref().unwrap().item);
     self.r.as_ref().map(|r| assert!(r.is_valid()));
     self.l.as_ref().map(|l| assert!(l.is_valid()));
     true
@@ -223,7 +270,7 @@ mod kdtree_test {
   }
   #[test]
   fn all_test() {
-    let mut t = KDTree::new(2);
+    let mut t = KDTree::new();
     let items: Vec<_> = vec!((2.,3.), (3.,2.), (1.,1.5), (1.,2.)).iter()
       .map(|&(a,b)| Point::from((a,b,0.)))
       .collect();
@@ -243,10 +290,16 @@ mod kdtree_test {
       }));
     assert!(t.is_valid());
     assert_eq!(t.size, 4);
+
+    items.iter().enumerate().for_each(|(i, p)| {
+      assert!(t.remove(p));
+      assert_eq!(t.size, 4-i-1);
+      assert!(t.is_valid());
+    });
   }
   #[test]
   fn gen_test() {
-    let mut t = KDTree::new(3);
+    let mut t = KDTree::new();
     let mut r = BadRand::new();
     let cap = 20;
     let num_points = 256;
@@ -269,8 +322,12 @@ mod kdtree_test {
       assert_eq!(naive_max(&points, d)[d], t.find_max(d).unwrap()[d]);
     });
     assert!(t.is_valid());
-    let from = KDTree::from(points.as_mut_slice());
+    let mut from = KDTree::from(points.as_mut_slice());
     assert!(t.depth() >= from.depth());
     assert!(from.is_valid());
+    points.iter().for_each(|p| {
+      assert!(from.remove(p));
+      assert!(from.is_valid());
+    });
   }
 }
