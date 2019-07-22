@@ -14,12 +14,7 @@ pub struct KDTree {
 }
 
 impl KDTree {
-  pub fn new() -> Self {
-    KDTree{
-      root: None,
-      size: 0,
-    }
-  }
+  pub fn new() -> Self { KDTree{ root: None, size: 0 } }
   pub fn add(&mut self, v: Point) {
     self.size += 1;
     match &mut self.root {
@@ -33,13 +28,10 @@ impl KDTree {
     if v.len() == 0 { return KDTree::new(); }
     let d = crate::point::variances(v)
       .iter().enumerate().min_by(|(_,a),(_,b)| a.partial_cmp(&b).unwrap()).unwrap().0;
-    let med = (v.len()-1)/2;
-    let partitions = v.partition_at_index_by(med, |a, b| match a[d].partial_cmp(&b[d]) {
-      Some(Ordering::Greater) => Ordering::Greater,
-      _ => Ordering::Less,
-    });
+    let p = v.partition_at_index_by((v.len()-1)/2,
+      |a,b| a[d].partial_cmp(&b[d]).unwrap_or(Ordering::Less));
     KDTree{
-      root: Some(KDNode::from(partitions, d)),
+      root: Some(KDNode::from(p, d)),
       size: v.len(),
     }
   }
@@ -59,23 +51,15 @@ impl KDTree {
     did_remove
   }
   pub fn is_empty(&self) -> bool { self.root.is_none() }
-  pub fn contains(&self, v: &Point) -> bool {
-    self.root.as_ref().map_or(false, |r| r.contains(v))
-  }
-  pub fn nearest(&self, v: &Point) -> Option<&Point> {
-    self.root.as_ref().map(|r| r.nearest(v).0)
-  }
+  pub fn contains(&self, v: &Point) -> bool { self.root.as_ref().map_or(false, |r| r.contains(v)) }
+  pub fn nearest(&self, v: &Point) -> Option<&Point> { self.root.as_ref().map(|r| r.nearest(v).0) }
   pub fn range<'a>(&self, b: &BoundingBox) -> Vec<Point> {
     let mut buf = vec!();
     self.root.as_ref().map(|r| r.range(b, &mut buf));
     buf
   }
-  pub fn find_max(&self, d: usize) -> Option<&Point> {
-    self.root.as_ref().map(|r| r.find_max(d))
-  }
-  pub fn find_min(&self, d: usize) -> Option<&Point> {
-    self.root.as_ref().map(|r| r.find_min(d))
-  }
+  pub fn find_max(&self, d: usize) -> Option<&Point> { self.root.as_ref().map(|r| r.find_max(d)) }
+  pub fn find_min(&self, d: usize) -> Option<&Point> { self.root.as_ref().map(|r| r.find_min(d)) }
   pub fn size(&self) -> usize { self.size }
   pub fn depth(&self) -> usize { self.root.as_ref().map_or(0, |r| r.depth()) }
   #[cfg(test)]
