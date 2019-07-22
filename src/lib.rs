@@ -3,12 +3,12 @@
 
 pub mod point;
 pub mod kdtree;
-//pub mod rtree;
 pub mod bounding_box;
-//pub mod mesh;
 pub mod bounded;
 pub mod iters;
 pub(crate) mod util;
+// pub mod rtree;
+//pub mod mesh;
 
 #[cfg(test)]
 pub(crate) mod test_util;

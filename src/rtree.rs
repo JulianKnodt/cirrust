@@ -1,67 +1,55 @@
-use crate::point::{Point};
 use crate::bounding_box::BoundingBox;
-use std::cmp::Ordering;
 
 pub struct RTree {
-  root: Option<RNode>,
-  dims: usize,
   size: usize,
-  max_rect_per_lvl: usize,
-  max_entries_per_rect: usize,
+
+  pages: Vec<RPage>,
+  page_depth: usize,
+  dist: fn(&BoundingBox, &BoundingBox) -> f32,
+
+  branches: Vec<RBranch>,
+}
+
+const MAX_PER_LVL: usize = 9;
+const MAX_ENTRIES: usize = 100_000;
+const ROOT: usize = 0;
+
+pub struct RPage(BoundingBox, Vec<(BoundingBox, T)>);
+pub struct RBranch {
+  // depth of this node
+  // will need to check if children are 1 + depth
+  depth: usize,
+  bb: BoundingBox,
+  children: Vec<usize>,
 }
 
 impl RTree {
-  pub fn new(dims: usize) -> Self {
+  pub fn new() -> Self {
     RTree{
-      root: None,
-      dims: dims,
       size: 0,
-      max_rect_per_lvl: 9, // good constant?
-      max_entries_per_rect: 10000, // arbitrary, should fix
+      pages: vec!(),
+      page_depth: 1,
+      branches: vec!(RBranch::new(0)),
     }
   }
-  pub fn add(&mut self, p: Point) {
-    self.size += 1;
-    match &mut self.root {
-      None => self.root = Some(RNode::new_degenerate(p)),
-      Some(ref mut r) => { r.add(p, self.max_entries_per_rect, self.max_rect_per_lvl); },
-    }
+  pub fn add(&mut self, item: (BoundingBox, T) {
+    let mut curr = branches[ROOT];
+    while curr.depth < self.page_depth + 1 {
+      let next = curr.children.iter()
+        .map(|c_index| self.branches[c_index])
+        .map(|c| (c, self.dist(&c.bb, &item.0)))
+        .min_by_key(|(_, d)| d);
+      // TODO handle next being some(i.e. selected)
+      // or none aka no children
+      unimplemented!();
+    };
+    unimplemented!();
   }
 }
 
-pub enum RNode {
-  Internal(BoundingBox, Vec<Box<RNode>>),
-  Leaf(BoundingBox, Vec<Point>),
-}
-
-impl RNode {
-  fn new_degenerate(p: Point) -> Self {
-    RNode::Leaf(BoundingBox::just(&p), vec!(p))
-  }
-  fn bb(&self) -> &BoundingBox {
-    match &self {
-      RNode::Internal(bb, _) | RNode::Leaf(bb, _) => bb,
-    }
-  }
-  // returns true if is overflowing
-  fn add(&mut self, p: Point, max_entries: usize, max_rects: usize) -> bool {
-    match self {
-      RNode::Internal(ref mut bb, ref mut children) => {
-        if !bb.strictly_contains(&p) { assert!(bb.expand_to(&p)) };
-        let selected = children.iter_mut()
-          .map(|c| (c.bb().dist(&p), c))
-          .min_by(|(d, _), (o_d, _)| (d.partial_cmp(o_d).unwrap_or(Ordering::Greater)))
-          .map(|(_, child)| child)
-          .expect("There was an internal node with no children");
-        if selected.add(p, max_entries, max_rects) {
-          unimplemented!();
-        } else { false }
-      },
-      RNode::Leaf(ref mut bb, ref mut pts) => {
-        if !bb.strictly_contains(&p) { assert!(bb.expand_to(&p)) };
-        pts.push(p);
-        pts.len() >= max_entries
-      },
-    }
+impl RBranch {
+  pub fn new(depth: usize) -> Self {
+    let children = vec!();
+    RBranch{depth, children}
   }
 }

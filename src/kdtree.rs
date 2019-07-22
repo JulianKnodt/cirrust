@@ -332,4 +332,6 @@ mod kdtree_test {
       assert!(from.is_valid());
     });
   }
+
+  // TODO add tests for range
 }
