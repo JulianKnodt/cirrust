@@ -2,7 +2,10 @@ use std::{
   cmp::Ordering,
   f32,
 };
-use crate::point::{Point};
+use crate::{
+  point::Point,
+  bounding_box::BoundingBox,
+};
 
 #[derive(Debug)]
 pub struct KDTree {
@@ -44,12 +47,10 @@ impl KDTree {
     let did_remove = if self.root.as_ref().map_or(false, |r| &r.item == p) {
       let mut root = self.root.as_mut().unwrap();
       let cmp_dim = root.cmp_dim;
-      () == if let Some(r) = root.r.as_mut() {
-        let r_max = r.find_max(cmp_dim).clone();
+      () == if let Some(r_max) = root.r.as_mut().map(|r| r.find_max(cmp_dim).clone()) {
         assert!(root.remove(&r_max));
         root.item = r_max;
-      } else if let Some(l) = root.l.as_mut() {
-        let l_min = l.find_min(cmp_dim).clone();
+      } else if let Some(l_min) = root.l.as_mut().map(|l| l.find_min(cmp_dim).clone()) {
         assert!(root.remove(&l_min));
         root.item = l_min;
       } else { assert!(self.root.take().unwrap().is_leaf()) }
@@ -63,6 +64,11 @@ impl KDTree {
   }
   pub fn nearest(&self, v: &Point) -> Option<&Point> {
     self.root.as_ref().map(|r| r.nearest(v).0)
+  }
+  pub fn range<'a>(&self, b: &BoundingBox) -> Vec<Point> {
+    let mut buf = vec!();
+    self.root.as_ref().map(|r| r.range(b, &mut buf));
+    buf
   }
   pub fn find_max(&self, d: usize) -> Option<&Point> {
     self.root.as_ref().map(|r| r.find_max(d))
@@ -159,14 +165,11 @@ impl KDNode {
     };
     let next = next.unwrap();
     if &next.item != v { return next.remove(v) };
-    // next.item == v
     let cmp_dim = next.cmp_dim;
-    () == if let Some(r) = next.r.as_mut() {
-      let r_max = r.find_max(cmp_dim).clone();
+    () == if let Some(r_max) = next.r.as_mut().map(|r| r.find_max(cmp_dim).clone()) {
       assert!(next.remove(&r_max));
       next.item = r_max;
-    } else if let Some(l) = next.l.as_mut() {
-      let l_min = l.find_min(cmp_dim).clone();
+    } else if let Some(l_min) = next.l.as_mut().map(|l| l.find_min(cmp_dim).clone()) {
       assert!(next.remove(&l_min));
       next.item = l_min;
     } else if is_r { assert!(self.r.take().unwrap().is_leaf()) }
@@ -213,7 +216,22 @@ impl KDNode {
       .filter(|&(_, dist)| dist < near_dist)
       .unwrap_or((near_pt, near_dist))
   }
-
+  pub fn range<'a>(&self, b: &BoundingBox, buf: &mut Vec<Point>) {
+    if b.contains(&self.item) { buf.push(self.item.clone()); }
+    let d = self.cmp_dim;
+    match (self.item[d].partial_cmp(&b.min_on(d)), self.item[d].partial_cmp(&b.max_on(d))) {
+      (Some(Ordering::Greater), Some(Ordering::Greater)) => {
+        self.r.as_ref().map(|r| r.range(b, buf));
+      },
+      (Some(Ordering::Less), Some(Ordering::Less)) => {
+        self.l.as_ref().map(|l| l.range(b, buf));
+      },
+      (Some(Ordering::Greater), Some(Ordering::Less)) | _  => {
+        self.r.as_ref().map(|r| r.range(b, buf));
+        self.l.as_ref().map(|l| l.range(b, buf));
+      },
+    };
+  }
   pub fn children(&self) -> std::iter::Chain<
       std::option::Iter<Box<KDNode>>,
       std::option::Iter<Box<KDNode>>

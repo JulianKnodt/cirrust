@@ -57,6 +57,19 @@ impl Point {
   pub fn len(&self) -> usize { 3 }
   pub fn iter(&self) -> Iter { Iter(0, &self) }
   pub fn dist(&self, o: &Self) -> f32 { l2norm(self, o) }
+  pub fn get(&self, d: usize) -> Option<f32> {
+    match d {
+      0 | 1 | 2 => Some(self[d]),
+      _ => None,
+    }
+  }
+}
+
+pub fn variances(p: &[Point]) -> Vec<f32> {
+  if p.is_empty() { return vec!() };
+  (0..p[0].len())
+    .map(|d| crate::util::variance(p.iter().map(|p| p[d])))
+    .collect()
 }
 
 #[derive(Clone, Copy, Debug)]

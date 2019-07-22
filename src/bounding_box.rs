@@ -113,6 +113,8 @@ impl BoundingBox {
     assert_eq!(self.dim(), o.dim());
     (0..self.dim()).all(|d| self.rr[d] > o.ll[d] && self.ll[d] < o.rr[d])
   }
+  pub fn min_on(&self, d: usize) -> f32 { self.ll[d] }
+  pub fn max_on(&self, d: usize) -> f32 { self.rr[d] }
 }
 
 
